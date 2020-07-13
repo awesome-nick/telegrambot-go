@@ -1,0 +1,175 @@
+version: "3.8"
+services:
+    gobot:
+        restart: always
+        image: registry.awesomenick.com/gobot:latest
+        container_name: gobot
+        command: sh -c '/bin/wait-for.sh -t 10 gobot_postgres:5432 -- /bin/gobot'
+        expose:
+            - "80"
+        depends_on:
+            - gobot_postgres
+            - gobot_redis
+        env_file:
+            - env/.env-bot
+        volumes:
+            - "/var/gobot/img:/var/gobot/img"
+        networks:
+            - gobot
+        links:
+            - gobot_redis
+            - gobot_postgres
+
+    gobot_api:
+        restart: always
+        image: registry.awesomenick.com/gobot-api:latest
+        container_name: gobot_api
+        command: sh -c '/bin/wait-for.sh -t 10 gobot_postgres:5432 -- /bin/gobot-api'
+        expose:
+            - "8000"
+        depends_on:
+            - gobot_postgres
+            - gobot_redis
+        env_file:
+            - env/.env-api
+        volumes:
+            - "/var/gobot/img:/var/gobot/img"
+        networks:
+            - gobot
+        links:
+            - gobot_redis
+            - gobot_postgres
+
+    gobot_postgres:
+        restart: always
+        image: postgres:12-alpine
+        container_name: gobot_postgres
+        expose:
+            - "5432"
+        env_file:
+            - env/.env-db
+        volumes:
+            - "/var/pg/data:/var/lib/postgresql/data"
+        networks:
+            - gobot
+
+    gobot_redis:
+        restart: always
+        image: bitnami/redis:6.0.3
+        container_name: gobot_redis
+        expose:
+            - "6379"
+        env_file:
+            - env/.env-redis
+        volumes:
+            - "redis_data:/bitnami/redis/data"
+        networks:
+            - gobot
+
+    gobot_nginx:
+        restart: always
+        image: nginx:stable-alpine
+        container_name: gobot_nginx
+        ports:
+            - "80:80"
+            - "8000:8000"
+            - "8080:8080"
+            - "3000:3000"
+            - "9090:9090"
+            - "9100:9100"
+        networks:
+            - gobot
+        volumes:
+            - "./gobot_nginx/nginx.conf:/etc/nginx/nginx.conf"
+            - "/var/gobot/certs:/etc/nginx/certs:ro"
+        depends_on:
+            - gobot
+            - gobot_api
+        links:
+            - gobot
+            - gobot_api
+            - gobot_cadvisor
+            - gobot_prometheus
+            - gobot_grafana
+            - gobot_node_exporter
+
+    gobot_cadvisor:
+        restart: always
+        image: gcr.io/google-containers/cadvisor:v0.36.0
+        expose:
+            - "8080"
+        volumes:
+            - "/:/rootfs:ro"
+            - "/var/run:/var/run:ro"
+            - "/sys:/sys:ro"
+            - "/var/lib/docker/:/var/lib/docker:ro"
+            - "/dev/disk/:/dev/disk:ro"
+        devices: 
+            - "/dev/kmsg"
+        container_name: gobot_cadvisor
+        depends_on:
+            - gobot
+            - gobot_api
+            - gobot_redis
+            - gobot_postgres
+        networks:
+            - gobot
+
+    gobot_prometheus:
+        restart: always
+        image: prom/prometheus:v2.19.0
+        expose:
+            - "9090"
+        volumes:
+            - "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+        container_name: gobot_prometheus
+        depends_on:
+            - gobot
+            - gobot_api
+            - gobot_redis
+            - gobot_postgres
+            - gobot_cadvisor
+        links:
+            - gobot_grafana
+            - gobot_node_exporter
+        networks:
+            - gobot
+
+    gobot_grafana:
+        restart: always
+        image: bitnami/grafana:7.0.3
+        expose:
+            - "3000"
+        container_name: gobot_grafana
+        env_file:
+            - env/.env-grafana
+        volumes:
+        - "grafana_data:/var/lib/grafana"
+        depends_on:
+            - gobot
+            - gobot_api
+            - gobot_redis
+            - gobot_postgres
+        networks:
+            - gobot
+
+    gobot_node_exporter:
+        restart: always
+        image: prom/node-exporter:v1.0.0
+        expose:
+            - "9100"
+        container_name: gobot_node_exporter
+        depends_on:
+            - gobot
+            - gobot_api
+            - gobot_redis
+            - gobot_postgres
+        networks:
+            - gobot
+
+volumes:
+    redis_data: {}
+    grafana_data: {}
+
+networks:
+    gobot: {}
